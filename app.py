@@ -31,24 +31,31 @@ def home():
 @app.route("/convertir-pdf", methods=["POST"])
 def convertir_pdf():
     data = request.get_json(silent=True) or {}
+
     texto = data.get("texto_guion", "")
+    nombre_archivo = data.get("nombre_archivo", "guion_formateado")  # opcional
 
     if not texto.strip():
         return jsonify(error="Falta «texto_guion»"), 400
-
     try:
-        filename = "guion_formateado.pdf"
-        output_path = STATIC_FOLDER / filename
+        # Crear PDF
+        pdf_buffer = build_pdf(texto)
+        pdf_buffer.seek(0)
 
-        build_pdf(texto, output_path)
+        # Guardar en static/converted/
+        output_folder = Path("static/converted")
+        output_folder.mkdir(parents=True, exist_ok=True)
 
-        public_url = f"{request.host_url}static/{filename}"
+        output_path = output_folder / f"{nombre_archivo}.pdf"
+        with open(output_path, "wb") as f:
+            f.write(pdf_buffer.read())
+
+        # Devolver URL pública
+        public_url = f"https://script-pdf-api.onrender.com/static/converted/{nombre_archivo}.pdf"
         return jsonify(url=public_url)
 
     except Exception as exc:
         return jsonify(error=f"Error generando el PDF: {exc}"), 500
-
-
 # ---------- Arranque local ---------- #
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
