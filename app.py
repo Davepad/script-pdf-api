@@ -1,62 +1,55 @@
-from flask import Flask, request, send_from_directory, jsonify
+from flask import Flask, request, jsonify
 from fpdf import FPDF
-import io
 import os
-from pathlib import Path
-import re
+from flask_cors import CORS
 
-app = Flask(
-    __name__,
-    static_folder="static",  # Asegura que Render sirva esta carpeta
-    static_url_path="/static"
-)
+app = Flask(__name__)
+CORS(app)
 
-# ---------- Utilidades ---------- #
-FONT_PATH = Path(__file__).parent / "fonts" / "DejaVuSans.ttf"
-CONVERTED_DIR = Path("static/converted")
-CONVERTED_DIR.mkdir(parents=True, exist_ok=True)
+# Ruta donde se guardarán los PDFs
+OUTPUT_FOLDER = "static/converted"
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-def slugify(text):
-    """Convierte texto en un nombre de archivo seguro."""
-    return re.sub(r'[^a-zA-Z0-9_-]', '_', text.strip().replace(" ", "_"))[:50]
+class PDF(FPDF):
+    def header(self):
+        self.set_font("Arial", "B", 12)
+        self.cell(0, 10, "Guion en PDF", ln=True, align="C")
 
-def build_pdf(texto: str) -> Path:
-    """Convierte el texto recibido en un PDF y lo guarda en disco."""
-    pdf = FPDF(format="A4", unit="mm")
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Arial", "I", 8)
+        self.cell(0, 10, f"Página {self.page_no()}", align="C")
 
-    pdf.add_font("DejaVu", "", FONT_PATH.as_posix(), uni=True)
-    pdf.set_font("DejaVu", size=12)
-    pdf.multi_cell(0, 8, texto)
-
-    filename = slugify(texto.split("\n")[0]) + ".pdf"
-    filepath = CONVERTED_DIR / filename
-    pdf.output(filepath.as_posix(), dest="F")
-    return filepath
-
-
-# ---------- Rutas ---------- #
-@app.route("/")
-def home():
-    return "✅ La API está activa."
+    def chapter_body(self, text):
+        self.set_font("Arial", "", 12)
+        lines = text.split("\n")
+        for line in lines:
+            self.multi_cell(0, 10, line)
+            self.ln()
 
 @app.route("/convertir-pdf", methods=["POST"])
 def convertir_pdf():
-    data = request.get_json(silent=True) or {}
-    texto = data.get("texto_guion", "")
-    if not texto.strip():
-        return jsonify(error="Falta «texto_guion»"), 400
+    data = request.get_json()
+    texto_guion = data.get("texto_guion", "")
+    
+    if not texto_guion:
+        return jsonify({"error": "Falta el campo 'texto_guion'"}), 400
 
-    try:
-        pdf_path = build_pdf(texto)
-        url = f"/static/converted/{pdf_path.name}"
-        full_url = request.host_url.rstrip("/") + url
-        return jsonify(url_pdf=full_url)
-    except Exception as exc:
-        return jsonify(error=f"Error generando el PDF: {exc}"), 500
+    # Nombre del archivo basado en la primera línea del guion
+    primera_linea = texto_guion.split("\n")[0].strip().replace(" ", "_")
+    nombre_archivo = f"{primera_linea}.pdf"
+    ruta_archivo = os.path.join(OUTPUT_FOLDER, nombre_archivo)
 
-# ---------- Arranque local ---------- #
+    # Crear el PDF
+    pdf = PDF()
+    pdf.add_page()
+    pdf.chapter_body(texto_guion)
+    pdf.output(ruta_archivo)
+
+    # Construir URL absoluta
+    pdf_url = f"{request.host_url}static/converted/{nombre_archivo}"
+    
+    return jsonify({"pdf_url": pdf_url}), 200
+
 if __name__ == "__main__":
-    app.run(debug=True, port=int(os.environ.get("PORT", 5000)))
-
+    app.run(debug=True)
