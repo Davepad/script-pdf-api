@@ -4,6 +4,11 @@ import os
 
 app = Flask(__name__)
 
+# NUEVA RUTA para evitar el error Not Found
+@app.route('/')
+def home():
+    return "La API está funcionando correctamente"
+
 @app.route('/convertir-pdf', methods=['POST'])
 def convertir_pdf():
     data = request.json
